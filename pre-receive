@@ -30,6 +30,7 @@ for r in $revs; do
 		block_message=1
 	fi
 
+	# Remove the following to skip format check
 	if [[ (! $summary =~ $re_issue) &&
 				(! $summary =~ $re_maint) ]]; then
 		errlist+=("format")

@@ -1,0 +1,81 @@
+#!/bin/bash
+
+readonly z40="0000000000000000000000000000000000000000"
+readonly re_maint="^MAINT(ENANCE)*: ([A-Z].{10,})"
+readonly re_issue="^([A-Z]{2,10}-[0-9]{1,6})(, ([A-Z]{2,10}-[0-9]{1,6}))*: ([A-Z].{10,})"
+
+read -s stdin
+declare -a ary=($stdin)
+old=${ary[0]}
+new=${ary[1]}
+ref=${ary[2]}
+
+# If old commit are a just zeros, it is a new ref we are seeing. Then
+# get all already known refs and get a commit list from the new ref but
+# where we ignore all known refs (^).
+if [ "$old" == "$z40" ]; then
+	skip=$(git for-each-ref --format="^%(refname:short)" refs/heads)
+	revs=$(git rev-list $new $skip)
+else
+	revs=$(git rev-list ${old}..${new})
+fi
+
+for r in $revs; do
+	unset block_message
+	declare -a errlist=()
+
+	summary=$(git show -s --format=%s $r)
+	if [ ${#summary} -lt 15 -o ${#summary} -gt 65 ]; then
+		errlist+=("length")
+		block_message=1
+	fi
+
+	if [[ (! $summary =~ $re_issue) &&
+				(! $summary =~ $re_maint) ]]; then
+		errlist+=("format")
+		block_message=1
+	fi
+
+	if [ "${summary: -1}" == "." ]; then
+		errlist+=("dot-at-end")
+		block_message=1
+	fi
+
+	while read line; do
+		if [ ${#line} -gt 72 ]; then
+			errlist+=("body")
+			block_message=1
+			break
+		fi
+	done <<< $(git show -s --format=%b $r)
+
+	if [ $block_message ]; then
+		errstr=$(IFS='/'; echo "${errlist[*]}")
+		echo "${r:0:7}: $errstr"
+	fi
+done
+
+if [ $block_message ]; then
+	cat <<EOF
+
+== BAD COMMIT MESSAGE(S) ==
+  (use "git rebase -i <upstream> [<branch>]" to amend
+
+Commit message format:
+1: Summary line, 15-65 chars
+2: <BLANK>
+3: Multi-line body, 0-72 chars per line
+4: ...
+
+Summary line format:
+   MAINT: <Summary>
+or MAINTENANCE: <Summary>
+or <ISSUE KEY>[, <ISSUE KEY>]: <Summary>
+
+More information:
+  http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html
+  https://wiki.openstack.org/wiki/GitCommitMessages
+
+EOF
+	exit 1
+fi 

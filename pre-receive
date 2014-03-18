@@ -4,59 +4,63 @@ readonly z40="0000000000000000000000000000000000000000"
 readonly re_maint="^MAINT(ENANCE)*: ([A-Z].{10,})"
 readonly re_issue="^([A-Z]{2,10}-[0-9]{1,6})(, ([A-Z]{2,10}-[0-9]{1,6}))*: ([A-Z].{10,})"
 
-read -s stdin
-declare -a ary=($stdin)
-old=${ary[0]}
-new=${ary[1]}
-ref=${ary[2]}
+function process_ref() {
+	declare -a local ary=($1)
+	local old=${ary[0]}
+	local new=${ary[1]}
+	local ref=${ary[2]}
 
-# If old commit are a just zeros, it is a new ref we are seeing. Then
-# get all already known refs and get a commit list from the new ref but
-# where we ignore all known refs (^).
-if [ "$old" == "$z40" ]; then
-	skip=$(git for-each-ref --format="^%(refname:short)" refs/heads)
-	revs=$(git rev-list $new $skip)
-else
-	revs=$(git rev-list ${old}..${new})
-fi
-
-for r in $revs; do
-	unset block_message
-	declare -a errlist=()
-
-	summary=$(git show -s --format=%s $r)
-	if [ ${#summary} -lt 15 -o ${#summary} -gt 65 ]; then
-		errlist+=("length")
-		block_message=1
+	if [ "$old" == "$z40" ]; then
+		local skip=$(git for-each-ref --format="^%(refname:short)" refs/heads)
+		local revs=$(git rev-list $new $skip)
+	else
+		local revs=$(git rev-list ${old}..${new})
 	fi
 
-	# Remove the following to skip format check
-	if [[ (! $summary =~ $re_issue) &&
-				(! $summary =~ $re_maint) ]]; then
-		errlist+=("format")
-		block_message=1
-	fi
+	local block=0
+	for r in $revs; do
+		declare -a local errlist=()
 
-	if [ "${summary: -1}" == "." ]; then
-		errlist+=("dot-at-end")
-		block_message=1
-	fi
-
-	while read line; do
-		if [ ${#line} -gt 72 ]; then
-			errlist+=("body")
-			block_message=1
-			break
+		local summary=$(git show -s --format=%s $r)
+		if [ ${#summary} -lt 15 -o ${#summary} -gt 65 ]; then
+			errlist+=("length")
 		fi
-	done <<< $(git show -s --format=%b $r)
 
-	if [ $block_message ]; then
-		errstr=$(IFS='/'; echo "${errlist[*]}")
-		echo "${r:0:7}: $errstr"
-	fi
-done
+		# Remove the following to skip format check
+		if [[ (! $summary =~ $re_issue) &&
+					(! $summary =~ $re_maint) ]]; then
+			errlist+=("format")
+		fi
 
-if [ $block_message ]; then
+		if [ "${summary: -1}" == "." ]; then
+			errlist+=("dot-at-end")
+		fi
+
+		while read -s line; do
+			if [ ${#line} -gt 72 ]; then
+				errlist+=("body")
+				break
+			fi
+		done <<< $(git show -s --format=%b $r)
+
+		if [ ${#errlist[@]} -gt 0 ]; then
+			local errstr=$(IFS='/'; echo "${errlist[*]}")
+			echo "$ref:${r:0:7}: $errstr"
+			block=1
+		fi
+	done
+	return $block
+}
+
+
+# Process each received ref
+while read -s args; do
+	process_ref "$args" || block=1
+done <&0
+
+
+# Print advisory message about format
+if [ $block ]; then
 	cat <<EOF
 
 == BAD COMMIT MESSAGE(S) ==

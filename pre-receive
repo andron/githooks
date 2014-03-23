@@ -36,12 +36,12 @@ function process_ref() {
 			errlist+=("dot-at-end")
 		fi
 
-		while read -s line; do
+		git log --format=%b -1 $r | while read -s line; do
 			if [ ${#line} -gt 72 ]; then
 				errlist+=("body")
 				break
 			fi
-		done <<< $(git show -s --format=%b $r)
+		done
 
 		if [ ${#errlist[@]} -gt 0 ]; then
 			local errstr=$(IFS='/'; echo "${errlist[*]}")

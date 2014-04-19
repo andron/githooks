@@ -73,7 +73,7 @@ Commit message format:
 4: ...
 
 Summary line format:
-   MAINT: <Summary>
+   M: <Summary>
 or MAINTENANCE: <Summary>
 or <ISSUE KEY>[, <ISSUE KEY>]: <Summary>
 
